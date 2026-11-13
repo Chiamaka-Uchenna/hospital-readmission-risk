@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hospital readmission risk for patients with diabetes</title>
+<meta name="description" content="Interactive 30-day readmission risk model trained on 70,000 real patients from 130 US hospitals.">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">Health and disease · Clinical risk prediction</p>
+    <h1>Who comes back to hospital within 30 days?</h1>
+    <p class="lede">A readmission risk model for patients with diabetes, trained on real encounters from 130 US hospitals. The model runs in your browser: change the patient details below and the risk updates instantly.</p>
+    <div class="links">
+      <a href="https://github.com/Chiamaka-Uchenna/hospital-readmission-risk/blob/main/notebooks/hospital_readmission.ipynb">Read the notebook</a>
+      <a href="https://github.com/Chiamaka-Uchenna/hospital-readmission-risk">Source on GitHub</a>
+      <a href="https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008">Dataset (UCI)</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section>
+    <h2>Risk calculator</h2>
+    <p class="section-note">Describe a patient at discharge. The score is the model's estimate of the chance of an unplanned readmission within 30 days. It is a research demonstration and not a clinical tool.</p>
+    <div class="card">
+      <div class="form-grid" id="form"></div>
+      <div class="result">
+        <div>
+          <div class="label">Estimated 30-day readmission risk</div>
+          <div class="big" id="risk">–</div>
+          <span class="badge" id="band"></span>
+        </div>
+        <div>
+          <div class="meter"><div id="meter"></div></div>
+          <p id="compare"></p>
+          <p id="percentile"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Who gets readmitted</h2>
+    <p class="section-note">Share of patients readmitted within 30 days, by group. The dotted line is the overall rate.</p>
+    <div class="grid">
+      <div class="card"><h3>By age</h3><p class="sub">Risk rises steadily with age.</p><div class="chart" id="c-age"></div></div>
+      <div class="card"><h3>By inpatient stays in the previous year</h3><p class="sub">Previous admissions are the clearest warning sign.</p><div class="chart" id="c-prior"></div></div>
+      <div class="card"><h3>By discharge destination</h3><p class="sub">Patients who need care after discharge return more often.</p><div class="chart" id="c-discharge"></div></div>
+      <div class="card"><h3>By primary diagnosis</h3><p class="sub">Differences between diagnosis groups are smaller.</p><div class="chart" id="c-diag"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How good is the model</h2>
+    <p class="section-note">Evaluated on a held-out test set of patients the model never saw during training.</p>
+    <div class="grid">
+      <div class="card"><h3>Predicted against observed risk</h3><p class="sub">Each point is a tenth of test patients. Points on the diagonal mean the probabilities can be trusted.</p><div class="chart" id="c-cal"></div></div>
+      <div class="card"><h3>Observed readmission rate by risk decile</h3><p class="sub">Decile 1 holds the patients the model scored highest.</p><div class="chart" id="c-lift"></div></div>
+      <div class="card"><h3>What drives the predictions</h3><p class="sub">Mean absolute SHAP value, in log-odds.</p><div class="chart" id="c-imp"></div></div>
+      <div class="card"><h3>Performance across patient groups</h3><p class="sub">Race was not an input to the model. It is used here only to audit it.</p><div class="table-wrap" style="max-height:none"><table id="t-fair"></table></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Targeting a follow-up programme</h2>
+    <p class="section-note">Suppose a follow-up programme is offered to discharged patients, highest risk first. Move the assumptions to see how many patients it is worth enrolling. Computed on the real outcomes of the test set.</p>
+    <div class="card">
+      <div class="controls">
+        <label class="field">Programme cost per patient <output id="o-cost"></output><input type="range" id="s-cost" min="50" max="1500" step="50" value="300"></label>
+        <label class="field">Cost of one readmission <output id="o-readmit"></output><input type="range" id="s-readmit" min="5000" max="30000" step="1000" value="15000"></label>
+        <label class="field">Readmissions prevented among enrolled <output id="o-effect"></output><input type="range" id="s-effect" min="5" max="50" step="5" value="20"></label>
+      </div>
+      <div class="chart" id="c-saving"></div>
+      <p class="sub" id="saving-text" style="margin-top:8px"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Method and limits</h2>
+    <ul class="notes">
+      <li>Data: 101,766 inpatient encounters from 130 US hospitals, 1999 to 2008 (Strack et al., 2014). Deaths and hospice discharges are removed and one encounter is kept per patient.</li>
+      <li>Model: gradient boosted trees (XGBoost) on 42 features available at discharge, compared with a logistic regression baseline. The trees are exported to JSON and scored in this page with plain JavaScript.</li>
+      <li>An AUROC in the mid 0.60s is typical for readmission models built on administrative data. Many causes of readmission, such as social support and housing, are not recorded.</li>
+      <li>The data is old and from the US. A model like this must be retrained and validated on local, recent data before any clinical use.</li>
+    </ul>
+  </section>
+</main>
+
+<footer><div class="wrap">Built by Chiamaka Uchenna. Data from the UCI Machine Learning Repository.</div></footer>
+
+<script src="core.js"></script>
+<script>
+const LABELS = {
+  age: "Age", time_in_hospital: "Days in hospital", num_lab_procedures: "Lab procedures", num_procedures: "Other procedures",
+  num_medications: "Distinct medications", number_diagnoses: "Diagnoses recorded", prior_inpatient: "Inpatient stays, past year",
+  prior_emergency: "Emergency visits, past year", prior_outpatient: "Outpatient visits, past year", diabetes_drugs: "Diabetes drugs prescribed",
+  dose_changes: "Diabetes drug dose changes", admission_type: "Admission type", admission_source: "Admitted from",
+  discharge: "Discharged to", primary_diagnosis: "Primary diagnosis", a1c: "HbA1c result", insulin: "Insulin",
+  female: "Sex", on_diabetes_medication: "On diabetes medication",
+};
+const BINARY = { female: [[1, "Female"], [0, "Male"]], on_diabetes_medication: [[1, "Yes"], [0, "No"]] };
+
+(async () => {
+  const [model, s] = await Promise.all([DS.load("data/model.json"), DS.load("data/summary.json")]);
+  const gbm = s.metrics.find((m) => m.model === "Gradient boosting");
+  const base = s.base_rate;
+
+  DS.tiles("tiles", [
+    { label: "Patients analysed", value: DS.fmt(s.patients, 0), note: `from ${DS.fmt(s.encounters_raw, 0)} hospital encounters` },
+    { label: "Readmitted within 30 days", value: DS.pct(base), note: "overall rate" },
+    { label: "Model AUROC", value: gbm.AUROC.toFixed(3), note: `95% interval ${gbm["AUROC 95% low"].toFixed(2)} to ${gbm["AUROC 95% high"].toFixed(2)}` },
+    { label: "Top risk decile", value: `${s.lift[0].lift.toFixed(1)}x`, note: "the average readmission rate" },
+  ]);
+
+  /* calculator */
+  const form = document.getElementById("form");
+  const addField = (name, control) => {
+    const label = document.createElement("label");
+    label.className = "field";
+    label.textContent = LABELS[name] || name;
+    label.appendChild(control);
+    form.appendChild(label);
+  };
+  s.schema.numeric.forEach((f) => {
+    let control;
+    if (BINARY[f.name]) {
+      control = document.createElement("select");
+      DS.fill(control, BINARY[f.name], f.default);
+    } else {
+      control = document.createElement("input");
+      control.type = "number";
+      control.min = f.min; control.max = f.max; control.value = f.default;
+      if (f.name === "age") control.step = 10;
+    }
+    control.dataset.name = f.name;
+    control.dataset.kind = "numeric";
+    addField(f.name, control);
+  });
+  s.schema.categorical.forEach((f) => {
+    const control = document.createElement("select");
+    DS.fill(control, f.levels, f.default);
+    control.dataset.name = f.name;
+    control.dataset.kind = "categorical";
+    addField(f.name, control);
+  });
+
+  const score = () => {
+    const values = {};
+    form.querySelectorAll("[data-name]").forEach((c) => {
+      if (c.dataset.kind === "numeric") {
+        const lo = c.min === "" ? -Infinity : Number(c.min), hi = c.max === "" ? Infinity : Number(c.max);
+        values[c.dataset.name] = Math.min(hi, Math.max(lo, Number(c.value)));
+      } else {
+        values[`${c.dataset.name}__${c.value.replace(/ /g, "_")}`] = 1;
+      }
+    });
+    const p = DS.predict(model, DS.vector(model, values));
+    const q = s.risk_quantiles;
+    let pctile = q.findIndex((v) => v >= p);
+    if (pctile === -1) pctile = 100;
+    document.getElementById("risk").textContent = DS.pct(p);
+    document.getElementById("meter").style.width = `${Math.min(100, (p / q[100]) * 100)}%`;
+    const band = document.getElementById("band");
+    const level = p >= q[90] ? ["critical", "High risk"] : p >= q[60] ? ["warning", "Elevated risk"] : ["good", "Lower risk"];
+    band.className = `badge ${level[0]}`;
+    band.textContent = level[1];
+    document.getElementById("compare").textContent =
+      `${(p / base).toFixed(1)} times the average risk of ${DS.pct(base)}.`;
+    document.getElementById("percentile").textContent =
+      `Higher than about ${pctile} percent of patients in the test set.`;
+  };
+  form.addEventListener("input", score);
+  score();
+
+  /* descriptive charts */
+  const rateBars = (id, rows, key, xTitle, horizontal = false) => {
+    const labels = rows.map((r) => String(r[key]));
+    const rates = rows.map((r) => r.rate * 100);
+    const hover = rows.map((r) => `${DS.fmt(r.patients, 0)} patients`);
+    const trace = horizontal
+      ? { type: "bar", orientation: "h", y: labels, x: rates, customdata: hover, marker: { color: DS.css("--series-1") },
+          hovertemplate: "%{y}<br>%{x:.1f}% readmitted<br>%{customdata}<extra></extra>", name: "Readmission rate (%)" }
+      : { type: "bar", x: labels, y: rates, customdata: hover, marker: { color: DS.css("--series-1") },
+          hovertemplate: "%{x}<br>%{y:.1f}% readmitted<br>%{customdata}<extra></extra>", name: "Readmission rate (%)" };
+    const line = { type: "line", line: { color: DS.css("--text-muted"), dash: "dot", width: 1.5 } };
+    const shapes = [horizontal
+      ? { ...line, x0: base * 100, x1: base * 100, yref: "paper", y0: 0, y1: 1 }
+      : { ...line, y0: base * 100, y1: base * 100, xref: "paper", x0: 0, x1: 1 }];
+    const layout = horizontal
+      ? { xaxis: { title: "Readmitted within 30 days (%)" }, yaxis: { showgrid: false }, shapes, bargap: 0.3, margin: { l: 120, r: 16, t: 8, b: 44 } }
+      : { xaxis: { title: xTitle, type: "category", showgrid: false }, yaxis: { title: "Readmitted within 30 days (%)" }, shapes, bargap: 0.3 };
+    DS.plot(id, [trace], layout);
+  };
+  rateBars("c-age", s.rate_by_age, "age", "Age (bracket midpoint)");
+  rateBars("c-prior", s.rate_by_prior_inpatient, "prior_inpatient", "Inpatient stays in the previous year");
+  rateBars("c-discharge", s.rate_by_discharge, "discharge", "", true);
+  rateBars("c-diag", s.rate_by_diagnosis, "primary_diagnosis", "", true);
+
+  /* model charts */
+  const cal = s.calibration;
+  const top = Math.max(...cal.predicted, ...cal.observed) * 100 * 1.08;
+  DS.plot("c-cal", [
+    { x: [0, top], y: [0, top], mode: "lines", name: "Perfect calibration", line: { color: DS.css("--text-muted"), dash: "dot", width: 1.5 }, hoverinfo: "skip" },
+    { x: cal.predicted.map((v) => v * 100), y: cal.observed.map((v) => v * 100), mode: "lines+markers", name: "Model",
+      line: { color: DS.css("--series-1"), width: 2 }, marker: { size: 8 }, hovertemplate: "Predicted %{x:.1f}%<br>Observed %{y:.1f}%<extra></extra>" },
+  ], { xaxis: { title: "Predicted risk (%)" }, yaxis: { title: "Observed rate (%)" } });
+
+  DS.plot("c-lift", [{
+    type: "bar", x: s.lift.map((r) => String(r.decile)), y: s.lift.map((r) => r.rate * 100), name: "Observed rate (%)",
+    marker: { color: DS.css("--series-1") }, customdata: s.lift.map((r) => r.cumulative_share * 100),
+    hovertemplate: "Decile %{x}<br>%{y:.1f}% readmitted<br>%{customdata:.0f}% of all readmissions in this decile or higher<extra></extra>",
+  }], {
+    xaxis: { title: "Risk decile (1 = highest)", type: "category", showgrid: false }, yaxis: { title: "Readmitted within 30 days (%)" }, bargap: 0.3,
+    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: base * 100, y1: base * 100, line: { color: DS.css("--text-muted"), dash: "dot", width: 1.5 } }],
+  });
+
+  const imp = [...s.importance].reverse();
+  DS.plot("c-imp", [{
+    type: "bar", orientation: "h", y: imp.map((r) => r.feature), x: imp.map((r) => r.value), name: "Mean |SHAP|",
+    marker: { color: DS.css("--series-1") }, hovertemplate: "%{y}<br>%{x:.3f}<extra></extra>",
+  }], { xaxis: { title: "Mean absolute SHAP value" }, yaxis: { showgrid: false }, bargap: 0.3, margin: { l: 190, r: 16, t: 8, b: 44 } });
+
+  const table = document.getElementById("t-fair");
+  const head = table.insertRow();
+  ["Group", "Patients", "Observed", "Predicted", "AUROC"].forEach((h) => { const th = document.createElement("th"); th.textContent = h; head.appendChild(th); });
+  s.fairness.forEach((r) => {
+    const row = table.insertRow();
+    [r.group === "AfricanAmerican" ? "African American" : r.group, DS.fmt(r.patients, 0), DS.pct(r.observed), DS.pct(r.predicted), r.auroc.toFixed(3)]
+      .forEach((v) => { row.insertCell().textContent = v; });
+  });
+
+  /* programme simulator */
+  const outcomes = s.ranked_outcomes;
+  const n = outcomes.length;
+  const money = (v) => `$${DS.fmt(v, 0)}`;
+  const simulate = () => {
+    const cost = Number(document.getElementById("s-cost").value);
+    const readmit = Number(document.getElementById("s-readmit").value);
+    const effect = Number(document.getElementById("s-effect").value) / 100;
+    document.getElementById("o-cost").textContent = money(cost);
+    document.getElementById("o-readmit").textContent = money(readmit);
+    document.getElementById("o-effect").textContent = `${Math.round(effect * 100)}%`;
+    const xs = [0], ys = [0];
+    let caught = 0, best = 0, bestAt = 0;
+    const step = Math.ceil(n / 200);
+    for (let i = 0; i < n; i++) {
+      caught += outcomes[i];
+      const net = caught * effect * readmit - (i + 1) * cost;
+      if (net > best) { best = net; bestAt = i + 1; }
+      if ((i + 1) % step === 0 || i === n - 1) { xs.push(((i + 1) / n) * 100); ys.push(net / 1000); }
+    }
+    const all = ys[ys.length - 1] * 1000;
+    DS.plot("c-saving", [
+      { x: xs, y: ys, mode: "lines", name: "Net saving", line: { color: DS.css("--series-1"), width: 2 },
+        hovertemplate: "Enrol top %{x:.0f}%<br>Net saving $%{y:,.0f}k<extra></extra>" },
+      { x: [(bestAt / n) * 100], y: [best / 1000], mode: "markers", name: "Best policy", marker: { color: DS.css("--series-2"), size: 11, line: { color: DS.css("--surface-1"), width: 2 } },
+        hovertemplate: "Best: enrol top %{x:.0f}%<br>Net saving $%{y:,.0f}k<extra></extra>" },
+    ], { xaxis: { title: "Share of discharged patients enrolled, highest risk first (%)" }, yaxis: { title: "Net saving (thousand US dollars)", zeroline: true, zerolinecolor: DS.css("--border") } }, { table: false });
+    document.getElementById("saving-text").textContent = bestAt === 0
+      ? `With these assumptions the programme does not pay for itself at any enrolment level across the ${DS.fmt(n, 0)} test patients.`
+      : `Best policy: enrol the highest risk ${Math.round((bestAt / n) * 100)}% of patients, for a net saving of ${money(best)} across ${DS.fmt(n, 0)} test patients. Enrolling everyone would ${all >= 0 ? "save" : "lose"} ${money(Math.abs(all))}.`;
+  };
+  ["s-cost", "s-readmit", "s-effect"].forEach((id) => document.getElementById(id).addEventListener("input", simulate));
+  simulate();
+})().catch((err) => {
+  document.querySelector("main").insertAdjacentHTML("afterbegin", `<p class="section-note">Could not load the dashboard data: ${err.message}</p>`);
+});
+</script>
+</body>
+</html>
