@@ -2,7 +2,7 @@
 
 Predicting which patients with diabetes will be back in hospital within 30 days of discharge, and using the prediction to target follow-up care.
 
-**[Open the live dashboard](https://chiamaka-uchenna.github.io/hospital-readmission-risk/)** · **[Read the notebook](notebooks/hospital_readmission.ipynb)**
+**[Open the Streamlit app](https://hospital-readmission-risk-nt9xdae5elppevxlcnwqef.streamlit.app/)** · **[Open the web dashboard](https://chiamaka-uchenna.github.io/hospital-readmission-risk/)** · **[Read the notebook](notebooks/hospital_readmission.ipynb)**
 
 ![Key chart from the analysis](assets/preview.png)
 
@@ -40,7 +40,7 @@ The dashboard is a static page served by GitHub Pages from the `docs/` folder. T
 
 ## Streamlit app
 
-The same model and charts are also packaged as a Streamlit app in `app/`, for hosting on Streamlit Community Cloud or any Python server:
+The same model and charts are deployed as a Streamlit app on Streamlit Community Cloud: [https://hospital-readmission-risk-nt9xdae5elppevxlcnwqef.streamlit.app/](https://hospital-readmission-risk-nt9xdae5elppevxlcnwqef.streamlit.app/). If the app has been idle it takes a few seconds to wake up. The code is in `app/`. To run it locally:
 
 ```bash
 pip install -r app/requirements.txt
